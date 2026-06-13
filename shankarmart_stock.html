@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Stock Lookup & Audit</title>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #0f1117; color: #f0f0f0;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 0 0 40px 0;
+  }
+  header { width: 100%; background: #1a1d27; border-bottom: 1px solid #2a2d3a; padding: 18px 20px 14px; text-align: center; }
+  header h1 { font-size: 18px; font-weight: 600; color: #fff; }
+  header p { font-size: 12px; color: #7a7f9a; margin-top: 3px; }
+  .container { width: 100%; max-width: 420px; padding: 20px 16px 0; display: flex; flex-direction: column; gap: 16px; }
+
+  /* Connect card */
+  #connect-card {
+    background: #1a1d27; border: 1.5px dashed #2f3347; border-radius: 14px;
+    padding: 20px 16px; display: flex; flex-direction: column; gap: 12px;
+  }
+  #connect-card h3 { font-size: 14px; font-weight: 600; color: #d0d4f0; text-align: center; }
+  #connect-card p { font-size: 12px; color: #666b8a; text-align: center; }
+  .server-input-row { display: flex; gap: 8px; }
+  .server-input-row input {
+    flex: 1; background: #0f1117; border: 1px solid #2a2d3a; border-radius: 9px;
+    color: #d0d4f0; font-size: 14px; padding: 10px 12px; outline: none;
+  }
+  .server-input-row input:focus { border-color: #5b6af0; }
+  .server-input-row input::placeholder { color: #444860; }
+  .btn-connect {
+    background: #5b6af0; color: #fff; border: none; border-radius: 9px;
+    padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  #connect-status { font-size: 12px; text-align: center; color: #666b8a; min-height: 16px; }
+  #connect-card.connected { border-style: solid; border-color: #2a5f3a; background: #141f1a; }
+  #connect-card.connected h3 { color: #5ccf7e; }
+  #connect-card.error { border-color: #4a2030; background: #1f1218; }
+  #connect-card.error h3 { color: #e05c6a; }
+
+  /* refresh pill */
+  #refresh-pill {
+    display: none; align-items: center; justify-content: space-between;
+    background: #141f1a; border: 1px solid #1e3828; border-radius: 10px; padding: 8px 14px;
+  }
+  #refresh-pill span { font-size: 12px; color: #5ccf7e; }
+  #refresh-pill button {
+    background: none; border: 1px solid #1e4a30; color: #5ccf7e;
+    border-radius: 6px; padding: 4px 10px; font-size: 11px; font-weight: 600; cursor: pointer;
+  }
+
+  /* Scanner area */
+  #scanner-section { display: none; flex-direction: column; gap: 14px; }
+  .video-wrap { position: relative; border-radius: 16px; overflow: hidden; background: #000; aspect-ratio: 4/3; width: 100%; }
+  video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scan-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .scan-box {
+    width: 260px; height: 130px; border: 2px solid #5b6af0; border-radius: 10px;
+    box-shadow: 0 0 0 2000px rgba(0,0,0,0.55);
+  }
+  .scan-box::before {
+    content: ''; position: absolute; left: 0; right: 0; height: 2px;
+    background: #5b6af0; box-shadow: 0 0 8px #5b6af0; animation: scan 2s linear infinite;
+  }
+  @keyframes scan { 0% { top: 35%; } 50% { top: 65%; } 100% { top: 35%; } }
+  .scan-hint { text-align: center; font-size: 12px; color: #7a7f9a; }
+  .control-row { display: flex; gap: 8px; }
+  .btn-action {
+    background: #1a1d27; color: #d0d4f0; border: 1px solid #2a2d3a;
+    border-radius: 9px; padding: 10px 12px; font-size: 13px; font-weight: 600;
+    cursor: pointer; flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
+  }
+  .btn-action.stop { background: #2a1020; color: #e05c6a; border-color: #4a2030; }
+  .btn-export {
+    background: #142f22; color: #5ccf7e; border: 1px solid #1e4a30;
+    width: 100%; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center;
+  }
+  .manual-row { display: flex; gap: 8px; }
+  .manual-row input {
+    flex: 1; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 9px;
+    color: #d0d4f0; font-size: 14px; padding: 10px 12px; outline: none;
+  }
+  .manual-row input:focus { border-color: #5b6af0; }
+  .btn-search {
+    background: #5b6af0; color: #fff; border: none; border-radius: 9px;
+    padding: 10px 14px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+
+  /* Result card */
+  #result-card { display: none; background: #1a1d27; border-radius: 14px; border: 1px solid #2a2d3a; overflow: hidden; }
+  .result-header { padding: 12px 16px; background: #141626; border-bottom: 1px solid #2a2d3a; display: flex; align-items: center; justify-content: space-between; }
+  .result-header span { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #666b8a; }
+  .result-barcode { font-size: 13px; color: #5b6af0; font-family: monospace; }
+  .result-body { padding: 16px; }
+  .stock-comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .stock-box-panel { background: #10121a; border: 1px solid #222533; border-radius: 10px; padding: 12px; text-align: center; }
+  .stock-box-panel .title { font-size: 11px; color: #666b8a; text-transform: uppercase; margin-bottom: 4px; }
+  .stock-box-panel .num { font-size: 24px; font-weight: 700; color: #fff; }
+  .audit-input-row {
+    background: #141f1a; border: 1px solid #1e3828; border-radius: 10px;
+    padding: 12px; display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-bottom: 14px;
+  }
+  .audit-input-row.discrepancy-active { background: #2b1b10; border-color: #543118; }
+  .audit-input-row label { font-size: 13px; font-weight: 600; color: #5ccf7e; }
+  .audit-input-row.discrepancy-active label { color: #f0a850; }
+  .audit-input-row input {
+    width: 90px; background: #0f1117; border: 1px solid #2a2d3a;
+    border-radius: 6px; padding: 6px 8px; color: #fff; font-size: 16px;
+    font-weight: 600; text-align: center; outline: none;
+  }
+  .result-row { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; border-bottom: 1px solid #1e2030; font-size: 13px; }
+  .result-row .lbl { color: #666b8a; }
+  .result-row .val { color: #d0d4f0; text-align: right; max-width: 60%; word-break: break-word; }
+  #not-found { display: none; background: #1f1218; border: 1px solid #4a2030; border-radius: 14px; padding: 20px 16px; text-align: center; }
+  #not-found h3 { font-size: 14px; color: #e05c6a; }
+  #not-found p { font-size: 12px; color: #7a3040; margin-top: 4px; }
+  #status-bar { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 10px; padding: 10px 14px; font-size: 12px; color: #8890b0; text-align: center; display: none; }
+  .divider-or { text-align: center; font-size: 11px; color: #444860; display: flex; align-items: center; gap: 10px; }
+  .divider-or::before, .divider-or::after { content: ''; flex: 1; height: 1px; background: #2a2d3a; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📦 Stock Lookup & Audit</h1>
+  <p id="header-sub">Connect to your computer to begin</p>
+</header>
+
+<div class="container">
+
+  <!-- Step 1: Connect to server -->
+  <div id="connect-card">
+    <h3>🔌 Connect to Vyapar Server</h3>
+    <p>Run <strong>vyapar_server.py</strong> on your computer, then enter its IP below</p>
+    <div class="server-input-row">
+      <input type="text" id="server-ip" placeholder="e.g. 192.168.1.5" inputmode="decimal" />
+      <button class="btn-connect" onclick="connectToServer()">Connect</button>
+    </div>
+    <div id="connect-status">Enter your computer's local IP address</div>
+  </div>
+
+  <!-- Refresh pill -->
+  <div id="refresh-pill">
+    <span id="refresh-label">🟢 Live — last synced: —</span>
+    <button onclick="fetchStock()">↻ Sync now</button>
+  </div>
+
+  <!-- Step 2: Scanner -->
+  <div id="scanner-section">
+    <div id="status-bar"></div>
+
+    <div class="video-wrap" id="video-wrap">
+      <video id="video" playsinline muted></video>
+      <div class="scan-overlay"><div class="scan-box"></div></div>
+    </div>
+    <p class="scan-hint">Align barcode inside the blue box</p>
+
+    <div class="control-row">
+      <button class="btn-action stop" id="btn-stop" onclick="stopCamera()">⏹ Stop Cam</button>
+      <button class="btn-action" id="btn-zoom" onclick="toggleZoom()">🔍 Zoom (1x)</button>
+      <button class="btn-action" onclick="toggleTorch()">🔦 Torch</button>
+    </div>
+
+    <button class="btn-export" id="btn-download" onclick="exportDiscrepancies()">📥 Export Discrepancy File (<span id="audit-count">0</span>)</button>
+    <button class="btn-action stop" style="width:100%;" onclick="resetDiscrepancies()">🗑️ Reset Discrepancies</button>
+
+    <div class="divider-or">or type last 5-6 digits</div>
+
+    <div class="manual-row">
+      <input type="text" id="manual-input" placeholder="Type numbers..." inputmode="numeric" />
+      <button class="btn-search" onclick="searchManual()">Search</button>
+    </div>
+
+    <div id="result-card">
+      <div class="result-header">
+        <span>Scanned Item</span>
+        <span class="result-barcode" id="res-barcode"></span>
+      </div>
+      <div class="result-body">
+        <div class="stock-comparison-grid">
+          <div class="stock-box-panel">
+            <div class="title">System Stock</div>
+            <div class="num" id="system-qty-val">—</div>
+          </div>
+          <div class="stock-box-panel" style="background:#141824;">
+            <div class="title" style="color:#5b6af0;">Current Status</div>
+            <div class="num" id="counted-qty-status" style="color:#5ccf7e; font-size:18px;">Match</div>
+          </div>
+        </div>
+        <div class="audit-input-row" id="audit-input-panel">
+          <label id="audit-label">Counted Qty:</label>
+          <input type="number" id="physical-qty-input" step="any" oninput="updateAuditValue()" placeholder="Qty" />
+        </div>
+        <div class="result-row" id="res-name-row">
+          <span class="lbl">Product</span>
+          <span class="val" id="res-name">—</span>
+        </div>
+        <div id="extra-rows"></div>
+      </div>
+    </div>
+
+    <div id="not-found">
+      <h3>Barcode not found</h3>
+      <p id="nf-code"></p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────────────────
+let serverBase = '';
+let sheetData = [];
+let barcodeMap = new Map();
+let suffix5Map = new Map();
+let suffix6Map = new Map();
+
+let codeReader = null;
+let lastScanned = '';
+let scanCooldown = false;
+let currentZoom = 1;
+let currentActiveItemCode = null;
+let autoRefreshTimer = null;
+
+let auditDiscrepancies = {};
+try {
+  const saved = localStorage.getItem('vyapar_audit_store');
+  if (saved) { auditDiscrepancies = JSON.parse(saved); updateAuditCountBadge(); }
+} catch(e) {}
+
+// Restore last server IP
+const savedIP = localStorage.getItem('vyapar_server_ip');
+if (savedIP) document.getElementById('server-ip').value = savedIP;
+
+// ── Server Connection ───────────────────────────────────────────────────────
+async function connectToServer() {
+  const ip = document.getElementById('server-ip').value.trim().replace(/\/+$/, '');
+  if (!ip) { setConnectStatus('Enter an IP address first.', 'error'); return; }
+
+  const port = '8765';
+  serverBase = `http://${ip}:${port}`;
+  setConnectStatus('Connecting…', '');
+
+  try {
+    const res = await fetch(`${serverBase}/ping`, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) throw new Error('Bad response');
+    const data = await res.json();
+    localStorage.setItem('vyapar_server_ip', ip);
+    setConnectStatus(`✅ Connected! Last DB refresh: ${data.last_refreshed || '—'}`, 'ok');
+    await fetchStock();
+  } catch(e) {
+    setConnectStatus(`❌ Cannot reach server at ${serverBase} — make sure vyapar_server.py is running and you're on the same WiFi.`, 'error');
+  }
+}
+
+async function fetchStock() {
+  if (!serverBase) return;
+  document.getElementById('refresh-label').textContent = '🔄 Syncing…';
+  try {
+    const res = await fetch(`${serverBase}/stock`, { signal: AbortSignal.timeout(8000) });
+    const data = await res.json();
+    buildMaps(data.items || []);
+
+    const time = data.last_refreshed || new Date().toLocaleTimeString();
+    document.getElementById('refresh-label').textContent = `🟢 Live — synced: ${time}`;
+    document.getElementById('header-sub').textContent = `${data.count} items · DB refreshes every 60s`;
+    document.getElementById('refresh-pill').style.display = 'flex';
+
+    // First load: show scanner
+    if (document.getElementById('scanner-section').style.display !== 'flex') {
+      document.getElementById('connect-card').classList.add('connected');
+      document.getElementById('connect-card').querySelector('h3').textContent = '✅ Connected to Vyapar';
+      document.getElementById('scanner-section').style.display = 'flex';
+      startCamera();
+      scheduleAutoRefresh();
+    }
+
+    // Re-display current item with fresh data if one is open
+    if (currentActiveItemCode) handleBarcode(currentActiveItemCode);
+
+  } catch(e) {
+    document.getElementById('refresh-label').textContent = '🔴 Sync failed — retrying…';
+  }
+}
+
+function scheduleAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(fetchStock, 60000);
+}
+
+function buildMaps(items) {
+  sheetData = items;
+  barcodeMap.clear(); suffix5Map.clear(); suffix6Map.clear();
+  items.forEach(item => {
+    const code = String(item.code || '').trim();
+    if (!code) return;
+    barcodeMap.set(code, item);
+    if (code.length >= 5) suffix5Map.set(code.slice(-5), item);
+    if (code.length >= 6) suffix6Map.set(code.slice(-6), item);
+  });
+}
+
+function setConnectStatus(msg, type) {
+  const el = document.getElementById('connect-status');
+  el.textContent = msg;
+  el.style.color = type === 'ok' ? '#5ccf7e' : type === 'error' ? '#e05c6a' : '#8890b0';
+}
+
+// ── Camera ──────────────────────────────────────────────────────────────────
+async function startCamera() {
+  setStatus('Starting camera…');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, focusMode: { ideal: 'continuous' } }
+    });
+    const video = document.getElementById('video');
+    video.srcObject = stream;
+    await video.play();
+
+    const track = stream.getVideoTracks()[0];
+    if (track?.getCapabilities) {
+      const caps = track.getCapabilities();
+      const adv = {};
+      if (caps.focusMode?.includes('continuous')) adv.focusMode = 'continuous';
+      if (caps.zoom?.max >= 2) { currentZoom = 2; adv.zoom = 2; document.getElementById('btn-zoom').textContent = '🔍 Zoom (2x)'; }
+      if (Object.keys(adv).length) await track.applyConstraints({ advanced: [adv] });
+    }
+
+    codeReader = new ZXing.BrowserMultiFormatReader();
+    codeReader.timeBetweenDecodingAttempts = 60;
+    codeReader.decodeFromStream(stream, video, (result, err) => {
+      if (result && !scanCooldown) {
+        const code = result.getText();
+        if (code !== lastScanned) {
+          lastScanned = code;
+          handleBarcode(code);
+          scanSuccessFeedback();
+          scanCooldown = true;
+          setTimeout(() => { scanCooldown = false; }, 1000);
+        }
+      }
+    });
+    setStatus('📷 Camera ready. Align barcode in box.');
+  } catch(e) {
+    setStatus('Camera unavailable — use manual search below.');
+    document.getElementById('video-wrap').style.display = 'none';
+  }
+}
+
+async function toggleZoom() {
+  const video = document.getElementById('video');
+  const track = video.srcObject?.getVideoTracks?.()[0];
+  if (!track?.getCapabilities) return;
+  const caps = track.getCapabilities();
+  if (!caps.zoom) return;
+  currentZoom = currentZoom < 2 ? Math.min(2, caps.zoom.max) : currentZoom < 3 ? Math.min(3, caps.zoom.max) : (caps.zoom.min || 1);
+  await track.applyConstraints({ advanced: [{ zoom: currentZoom }] });
+  document.getElementById('btn-zoom').textContent = `🔍 Zoom (${currentZoom.toFixed(1)}x)`;
+}
+
+async function toggleTorch() {
+  const track = document.getElementById('video').srcObject?.getVideoTracks?.()[0];
+  if (!track) return;
+  const caps = track.getCapabilities?.();
+  if (!caps?.torch) return;
+  window.__torchOn = !window.__torchOn;
+  await track.applyConstraints({ advanced: [{ torch: window.__torchOn }] });
+}
+
+function stopCamera() {
+  if (codeReader) { try { codeReader.reset(); } catch(e){} codeReader = null; }
+  const video = document.getElementById('video');
+  if (video.srcObject) { video.srcObject.getTracks().forEach(t => t.stop()); video.srcObject = null; }
+  document.getElementById('video-wrap').style.display = 'none';
+  document.getElementById('btn-stop').style.display = 'none';
+  document.getElementById('btn-zoom').style.display = 'none';
+  setStatus('Camera off. Use manual input below.');
+}
+
+function setStatus(msg) {
+  const bar = document.getElementById('status-bar');
+  bar.style.display = 'block'; bar.textContent = msg;
+}
+
+// ── Lookup ──────────────────────────────────────────────────────────────────
+function searchManual() {
+  const val = document.getElementById('manual-input').value.trim();
+  if (val) handleBarcode(val);
+}
+document.getElementById('manual-input').addEventListener('keydown', e => { if (e.key === 'Enter') searchManual(); });
+
+function handleBarcode(code) {
+  document.getElementById('result-card').style.display = 'none';
+  document.getElementById('not-found').style.display = 'none';
+
+  const codeStr = String(code).trim();
+  let item = barcodeMap.get(codeStr);
+  if (!item && codeStr.length === 5) item = suffix5Map.get(codeStr);
+  if (!item && codeStr.length === 6) item = suffix6Map.get(codeStr);
+  if (!item && codeStr.length >= 4) item = sheetData.find(r => String(r.code).trim().endsWith(codeStr));
+
+  if (!item) {
+    document.getElementById('not-found').style.display = 'block';
+    document.getElementById('nf-code').textContent = 'Searched: ' + codeStr;
+    return;
+  }
+
+  currentActiveItemCode = String(item.code).trim();
+  const systemQty = parseFloat(item.qty) || 0;
+
+  document.getElementById('res-barcode').textContent = currentActiveItemCode;
+  document.getElementById('system-qty-val').textContent = systemQty;
+  document.getElementById('res-name').textContent = item.name || '—';
+  document.getElementById('res-name-row').style.display = 'flex';
+
+  const inputEl = document.getElementById('physical-qty-input');
+  inputEl.value = auditDiscrepancies[currentActiveItemCode] !== undefined
+    ? auditDiscrepancies[currentActiveItemCode].countedQty
+    : systemQty;
+
+  // Extra fields
+  const extraDiv = document.getElementById('extra-rows');
+  extraDiv.innerHTML = '';
+  const extras = [
+    ['Sale Price', item.price ? '₹' + item.price : null],
+    ['MRP', item.mrp ? '₹' + item.mrp : null],
+    ['Min Stock', item.min_qty > 0 ? item.min_qty : null],
+    ['Location', item.location || null],
+    ['HSN/SAC', item.hsn || null],
+    ['Last Updated', item.last_updated || null],
+  ];
+  extras.forEach(([lbl, val]) => {
+    if (!val) return;
+    const div = document.createElement('div');
+    div.className = 'result-row';
+    div.innerHTML = `<span class="lbl">${lbl}</span><span class="val">${val}</span>`;
+    extraDiv.appendChild(div);
+  });
+
+  updateAuditValue();
+  document.getElementById('result-card').style.display = 'block';
+  document.getElementById('result-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ── Audit Logic ─────────────────────────────────────────────────────────────
+function updateAuditValue() {
+  if (!currentActiveItemCode) return;
+  const systemQty = parseFloat(document.getElementById('system-qty-val').textContent) || 0;
+  const typedVal = document.getElementById('physical-qty-input').value;
+  const statusBadge = document.getElementById('counted-qty-status');
+  const panel = document.getElementById('audit-input-panel');
+  const label = document.getElementById('audit-label');
+
+  if (typedVal === '' || parseFloat(typedVal) === systemQty) {
+    delete auditDiscrepancies[currentActiveItemCode];
+    statusBadge.textContent = 'Match'; statusBadge.style.color = '#5ccf7e';
+    panel.className = 'audit-input-row';
+    label.textContent = 'Counted Qty:'; label.style.color = '#5ccf7e';
+  } else {
+    const counted = parseFloat(typedVal) || 0;
+    auditDiscrepancies[currentActiveItemCode] = {
+      barcode: currentActiveItemCode,
+      name: document.getElementById('res-name').textContent || 'Unknown',
+      systemQty, countedQty: counted, difference: counted - systemQty
+    };
+    statusBadge.textContent = 'Mismatch'; statusBadge.style.color = '#f0a850';
+    panel.className = 'audit-input-row discrepancy-active';
+    label.textContent = 'Changed Qty ⚠️'; label.style.color = '#f0a850';
+  }
+  localStorage.setItem('vyapar_audit_store', JSON.stringify(auditDiscrepancies));
+  updateAuditCountBadge();
+}
+
+function updateAuditCountBadge() {
+  document.getElementById('audit-count').textContent = Object.keys(auditDiscrepancies).length;
+}
+
+function exportDiscrepancies() {
+  const records = Object.values(auditDiscrepancies);
+  if (!records.length) { alert('No discrepancies yet.'); return; }
+  let csv = 'Barcode,Product Name,System Qty,Counted Qty,Difference\n';
+  records.forEach(r => {
+    csv += `"${r.barcode}","${r.name.replace(/,/g,' ')}",${r.systemQty},${r.countedQty},${r.difference}\n`;
+  });
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURI(csv);
+  a.download = `Stock_Audit_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function resetDiscrepancies() {
+  if (!confirm('Clear all saved discrepancies?')) return;
+  auditDiscrepancies = {};
+  localStorage.removeItem('vyapar_audit_store');
+  updateAuditCountBadge();
+  if (currentActiveItemCode) {
+    document.getElementById('physical-qty-input').value = document.getElementById('system-qty-val').textContent;
+    updateAuditValue();
+  }
+  alert('All discrepancies cleared.');
+}
+
+function scanSuccessFeedback() {
+  try { navigator.vibrate && navigator.vibrate(80); } catch(e) {}
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.frequency.value = 900; osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(); gain.gain.setValueAtTime(0.05, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.08);
+    osc.stop(ctx.currentTime + 0.08);
+  } catch(e) {}
+}
+
+// Auto-connect if IP was saved
+if (savedIP) {
+  setTimeout(() => connectToServer(), 500);
+}
+</script>
+</body>
+</html>
