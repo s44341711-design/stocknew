@@ -78,6 +78,14 @@
     background: #142f22; color: #5ccf7e; border: 1px solid #1e4a30;
     width: 100%; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center;
   }
+  .btn-push {
+    background: #1a1430; color: #a78bfa; border: 1px solid #3b2f6e;
+    width: 100%; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center;
+    transition: background .15s;
+  }
+  .btn-push:active { background: #251950; }
+  .btn-push:disabled { opacity: .5; cursor: not-allowed; }
+  #push-status { font-size: 12px; text-align: center; min-height: 16px; color: #666b8a; }
   .manual-row { display: flex; gap: 8px; }
   .manual-row input {
     flex: 1; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 9px;
@@ -166,6 +174,8 @@
     </div>
 
     <button class="btn-export" id="btn-download" onclick="exportDiscrepancies()">📥 Export Discrepancy File (<span id="audit-count">0</span>)</button>
+    <button class="btn-push" id="btn-push" onclick="pushToServer()">📤 Push Discrepancies to Computer (<span id="push-count">0</span>)</button>
+    <div id="push-status"></div>
     <button class="btn-action stop" style="width:100%;" onclick="resetDiscrepancies()">🗑️ Reset Discrepancies</button>
 
     <div class="divider-or">or type last 5-6 digits</div>
@@ -476,7 +486,9 @@ function updateAuditValue() {
 }
 
 function updateAuditCountBadge() {
-  document.getElementById('audit-count').textContent = Object.keys(auditDiscrepancies).length;
+  const n = Object.keys(auditDiscrepancies).length;
+  document.getElementById('audit-count').textContent = n;
+  document.getElementById('push-count').textContent = n;
 }
 
 function exportDiscrepancies() {
@@ -502,6 +514,42 @@ function resetDiscrepancies() {
     updateAuditValue();
   }
   alert('All discrepancies cleared.');
+}
+
+async function pushToServer() {
+  const records = Object.values(auditDiscrepancies);
+  if (!records.length) { setPushStatus('No discrepancies to push yet.', '#666b8a'); return; }
+  if (!serverBase) { setPushStatus('Not connected to server.', '#e05c6a'); return; }
+
+  const btn = document.getElementById('btn-push');
+  btn.disabled = true;
+  setPushStatus('Sending to computer…', '#a78bfa');
+
+  try {
+    const res = await fetch(`${serverBase}/report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: records }),
+      signal: AbortSignal.timeout(6000),
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      setPushStatus(`✅ Sent ${data.received} item${data.received===1?'':'s'} to computer successfully!`, '#5ccf7e');
+      try { navigator.vibrate && navigator.vibrate([60, 40, 60]); } catch(e) {}
+    } else {
+      setPushStatus('Server returned an error.', '#e05c6a');
+    }
+  } catch(e) {
+    setPushStatus('❌ Failed to reach server. Check WiFi connection.', '#e05c6a');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function setPushStatus(msg, color) {
+  const el = document.getElementById('push-status');
+  el.textContent = msg;
+  el.style.color = color || '#666b8a';
 }
 
 function scanSuccessFeedback() {
