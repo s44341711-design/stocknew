@@ -36,6 +36,14 @@
     padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
   #connect-status { font-size: 12px; text-align: center; color: #666b8a; min-height: 16px; }
+  .username-row { display: flex; align-items: center; gap: 8px; }
+  .username-row label { font-size: 12px; color: #666b8a; white-space: nowrap; }
+  .username-row input {
+    flex: 1; background: #0f1117; border: 1px solid #2a2d3a; border-radius: 9px;
+    color: #d0d4f0; font-size: 14px; padding: 9px 12px; outline: none;
+  }
+  .username-row input:focus { border-color: #5b6af0; }
+  #username-display { font-size: 12px; color: #5b6af0; text-align: center; font-weight: 600; }
   #connect-card.connected { border-style: solid; border-color: #2a5f3a; background: #141f1a; }
   #connect-card.connected h3 { color: #5ccf7e; }
   #connect-card.error { border-color: #4a2030; background: #1f1218; }
@@ -144,11 +152,15 @@
   <div id="connect-card">
     <h3>🔌 Connect to Vyapar Server</h3>
     <p>Run <strong>vyapar_server.py</strong> on your computer, then enter its IP below</p>
+    <div class="username-row">
+      <label>Your name:</label>
+      <input type="text" id="username-input" placeholder="e.g. Ramesh" autocomplete="name" />
+    </div>
     <div class="server-input-row">
       <input type="text" id="server-ip" placeholder="e.g. 192.168.1.5" inputmode="decimal" />
       <button class="btn-connect" onclick="connectToServer()">Connect</button>
     </div>
-    <div id="connect-status">Enter your computer's local IP address</div>
+    <div id="connect-status">Enter your name and computer's IP</div>
   </div>
 
   <!-- Refresh pill -->
@@ -156,6 +168,8 @@
     <span id="refresh-label">🟢 Live — last synced: —</span>
     <button onclick="fetchStock()">↻ Sync now</button>
   </div>
+
+  <div id="username-display"></div>
 
   <!-- Step 2: Scanner -->
   <div id="scanner-section">
@@ -224,6 +238,7 @@
 <script>
 // ── State ───────────────────────────────────────────────────────────────────
 let serverBase = '';
+let currentUsername = '';
 let sheetData = [];
 let barcodeMap = new Map();
 let suffix5Map = new Map();
@@ -245,6 +260,8 @@ try {
 // Restore last server IP
 const savedIP = localStorage.getItem('vyapar_server_ip');
 if (savedIP) document.getElementById('server-ip').value = savedIP;
+const savedUsername = localStorage.getItem('vyapar_username');
+if (savedUsername) document.getElementById('username-input').value = savedUsername;
 
 // ── Server Connection ───────────────────────────────────────────────────────
 async function connectToServer() {
@@ -259,7 +276,12 @@ async function connectToServer() {
     const res = await fetch(`${serverBase}/ping`, { signal: AbortSignal.timeout(4000) });
     if (!res.ok) throw new Error('Bad response');
     const data = await res.json();
+    const uname = document.getElementById('username-input').value.trim();
+    if (!uname) { setConnectStatus('Please enter your name first.', 'error'); return; }
+    currentUsername = uname;
     localStorage.setItem('vyapar_server_ip', ip);
+    localStorage.setItem('vyapar_username', uname);
+    document.getElementById('username-display').textContent = `👤 Logged in as: ${uname}`;
     setConnectStatus(`✅ Connected! Last DB refresh: ${data.last_refreshed || '—'}`, 'ok');
     await fetchStock();
   } catch(e) {
@@ -529,7 +551,7 @@ async function pushToServer() {
     const res = await fetch(`${serverBase}/report`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: records }),
+      body: JSON.stringify({ username: currentUsername, items: records }),
       signal: AbortSignal.timeout(6000),
     });
     const data = await res.json();
@@ -565,7 +587,9 @@ function scanSuccessFeedback() {
 }
 
 // Auto-connect if IP was saved
-if (savedIP) {
+if (savedIP && savedUsername) {
+  currentUsername = savedUsername;
+  document.getElementById('username-display').textContent = `👤 Logged in as: ${savedUsername}`;
   setTimeout(() => connectToServer(), 500);
 }
 </script>
