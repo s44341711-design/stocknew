@@ -94,6 +94,31 @@
   .btn-push:active { background: #251950; }
   .btn-push:disabled { opacity: .5; cursor: not-allowed; }
   #push-status { font-size: 12px; text-align: center; min-height: 16px; color: #666b8a; }
+  .btn-flagged {
+    background: #1f1a10; color: #f0a850; border: 1px solid #543118;
+    width: 100%; border-radius: 9px; padding: 12px; font-size: 14px; font-weight: 600; cursor: pointer; text-align: center;
+    transition: background .15s;
+  }
+  .btn-flagged:active { background: #2b2010; }
+  .flagged-item-card {
+    background: #1f1a10; border: 1px solid #543118; border-radius: 10px; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .flagged-item-card.resolved { background: #141f1a; border-color: #1e3828; opacity: .6; }
+  .flagged-item-name { font-size: 14px; font-weight: 600; color: #f0c080; }
+  .flagged-item-meta { font-size: 12px; color: #888; display: flex; flex-wrap: wrap; gap: 8px; }
+  .flagged-resolve-row { display: flex; gap: 8px; align-items: center; }
+  .flagged-resolve-row input {
+    width: 90px; background: #0f1117; border: 1px solid #543118;
+    border-radius: 6px; padding: 6px 8px; color: #fff; font-size: 15px;
+    font-weight: 600; text-align: center; outline: none;
+  }
+  .btn-resolve {
+    background: #1a3d28; color: #5ccf7e; border: 1px solid #1e4a30;
+    border-radius: 7px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .btn-resolve:disabled { opacity: .5; cursor: not-allowed; }
+  #flagged-status { font-size: 12px; text-align: center; color: #666b8a; min-height: 14px; }
   .manual-row { display: flex; gap: 8px; }
   .manual-row input {
     flex: 1; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 9px;
@@ -192,6 +217,13 @@
     <div id="push-status"></div>
     <button class="btn-action stop" style="width:100%;" onclick="resetDiscrepancies()">🗑️ Reset Discrepancies</button>
 
+    <!-- Flagged Items Section -->
+    <button class="btn-flagged" id="btn-flagged-toggle" onclick="toggleFlaggedSection()">🚩 View Flagged Items (<span id="flagged-count">…</span>)</button>
+    <div id="flagged-section" style="display:none; flex-direction:column; gap:10px;">
+      <div id="flagged-list"></div>
+      <div id="flagged-status"></div>
+    </div>
+
     <div class="divider-or">or type last 5-6 digits</div>
 
     <div class="manual-row">
@@ -273,7 +305,7 @@ async function connectToServer() {
   setConnectStatus('Connecting…', '');
 
   try {
-    const res = await fetch(`${serverBase}/ping`, { signal: AbortSignal.timeout(4000) });
+    const res = await fetch(`${serverBase}/ping`, { signal: AbortSignal.timeout(4000), headers: { 'ngrok-skip-browser-warning': 'true' } });
     if (!res.ok) throw new Error('Bad response');
     const data = await res.json();
     const uname = document.getElementById('username-input').value.trim();
@@ -293,7 +325,7 @@ async function fetchStock() {
   if (!serverBase) return;
   document.getElementById('refresh-label').textContent = '🔄 Syncing…';
   try {
-    const res = await fetch(`${serverBase}/stock`, { signal: AbortSignal.timeout(8000) });
+    const res = await fetch(`${serverBase}/stock`, { signal: AbortSignal.timeout(8000), headers: { 'ngrok-skip-browser-warning': 'true' } });
     const data = await res.json();
     buildMaps(data.items || []);
 
@@ -313,6 +345,7 @@ async function fetchStock() {
 
     // Re-display current item with fresh data if one is open
     if (currentActiveItemCode) handleBarcode(currentActiveItemCode);
+    fetchFlagged();
 
   } catch(e) {
     document.getElementById('refresh-label').textContent = '🔴 Sync failed — retrying…';
@@ -550,7 +583,7 @@ async function pushToServer() {
   try {
     const res = await fetch(`${serverBase}/report`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
       body: JSON.stringify({ username: currentUsername, items: records }),
       signal: AbortSignal.timeout(6000),
     });
@@ -584,6 +617,96 @@ function scanSuccessFeedback() {
     gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.08);
     osc.stop(ctx.currentTime + 0.08);
   } catch(e) {}
+}
+
+// ── Flagged Items ────────────────────────────────────────────────────────────
+let flaggedItems = [];
+let flaggedSectionOpen = false;
+
+async function fetchFlagged() {
+  if (!serverBase) return;
+  try {
+    const res = await fetch(`${serverBase}/flagged`, {
+      signal: AbortSignal.timeout(6000),
+      headers: { 'ngrok-skip-browser-warning': 'true' }
+    });
+    flaggedItems = await res.json();
+    const pending = flaggedItems.filter(f => f.status === 'pending').length;
+    document.getElementById('flagged-count').textContent = pending + ' pending';
+    if (flaggedSectionOpen) renderFlaggedList();
+  } catch(e) {
+    document.getElementById('flagged-count').textContent = '—';
+  }
+}
+
+function toggleFlaggedSection() {
+  flaggedSectionOpen = !flaggedSectionOpen;
+  const sec = document.getElementById('flagged-section');
+  sec.style.display = flaggedSectionOpen ? 'flex' : 'none';
+  if (flaggedSectionOpen) { fetchFlagged(); }
+}
+
+function renderFlaggedList() {
+  const container = document.getElementById('flagged-list');
+  if (!flaggedItems.length) {
+    container.innerHTML = '<div style="color:#666b8a;font-size:13px;text-align:center;padding:12px">No flagged items from server.</div>';
+    return;
+  }
+  container.innerHTML = '';
+  [...flaggedItems].reverse().forEach(f => {
+    const isDone = f.status === 'corrected';
+    const card = document.createElement('div');
+    card.className = 'flagged-item-card' + (isDone ? ' resolved' : '');
+    card.innerHTML = `
+      <div class="flagged-item-name">${isDone ? '✅ ' : '🚩 '}${f.name}</div>
+      <div class="flagged-item-meta">
+        <span>Barcode: <b style="color:#d0d4f0">${f.barcode || '—'}</b></span>
+        <span>System Qty: <b style="color:#d0d4f0">${f.system_qty}</b></span>
+        <span>Reason: ${f.reason || '—'}</span>
+        ${isDone ? `<span style="color:#5ccf7e">Corrected: ${f.corrected_qty} by ${f.corrected_by}</span>` : ''}
+      </div>
+      ${!isDone ? `<div class="flagged-resolve-row">
+        <input type="number" id="resolve-input-${f.flag_id}" step="any" placeholder="Actual qty" />
+        <button class="btn-resolve" id="resolve-btn-${f.flag_id}" onclick="resolveFlag('${f.flag_id}')">Submit</button>
+      </div>` : ''}
+    `;
+    container.appendChild(card);
+  });
+}
+
+async function resolveFlag(flagId) {
+  const input = document.getElementById(`resolve-input-${flagId}`);
+  const btn = document.getElementById(`resolve-btn-${flagId}`);
+  const qty = input?.value;
+  if (qty === '' || qty === null || qty === undefined) { setFlaggedStatus('Enter the actual quantity first.', '#e05c6a'); return; }
+  if (!serverBase) { setFlaggedStatus('Not connected to server.', '#e05c6a'); return; }
+  btn.disabled = true;
+  setFlaggedStatus('Sending…', '#a78bfa');
+  try {
+    const res = await fetch(`${serverBase}/flagged/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+      body: JSON.stringify({ flag_id: flagId, corrected_qty: parseFloat(qty), username: currentUsername }),
+      signal: AbortSignal.timeout(6000),
+    });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      setFlaggedStatus('✅ Correction submitted!', '#5ccf7e');
+      try { navigator.vibrate && navigator.vibrate([60,40,60]); } catch(e){}
+      await fetchFlagged();
+    } else {
+      setFlaggedStatus('Server error: ' + (data.message || '?'), '#e05c6a');
+      btn.disabled = false;
+    }
+  } catch(e) {
+    setFlaggedStatus('❌ Failed to reach server.', '#e05c6a');
+    btn.disabled = false;
+  }
+}
+
+function setFlaggedStatus(msg, color) {
+  const el = document.getElementById('flagged-status');
+  el.textContent = msg; el.style.color = color || '#666b8a';
 }
 
 // Auto-connect if IP was saved
